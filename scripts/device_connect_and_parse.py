@@ -115,16 +115,36 @@ async def db_writer():
 
 
 async def main():
+    global current_session_id, session_key
+    
     # Get session key from server first
     session_key = await request_session()
     if not session_key:
         print("Could not create session. Exiting.")
         return
 
+    # Get the session ID from Supabase using the session key
+    try:
+        session = supabase.table('sessions')\
+            .select('id')\
+            .eq('session_key', session_key)\
+            .execute()\
+            .data
+        
+        if not session:
+            print("Session not found in database. Exiting.")
+            return
+            
+        current_session_id = session[0]['id']
+        print(f"Session ID: {current_session_id}")
+    except Exception as e:
+        print(f"Error fetching session ID: {e}")
+        return
+
     print(f"Starting data collection with session key: {session_key}")
     print("Share this session key with the person viewing the data.")
 
-    global DEVICE_ADDRESS, CHAR_UUID, current_session_id
+    global DEVICE_ADDRESS, CHAR_UUID
 
     # Find device
     CHAR_UUID = await find_device()
