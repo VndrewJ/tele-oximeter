@@ -159,6 +159,7 @@ function DataPage() {
   const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [error, setError] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
   const sessionKey = window.location.pathname.split('/')[2]; // Get session key from URL
 
   // helper: ensure consistent formatting
@@ -170,13 +171,13 @@ function DataPage() {
       idx: i
     }));
 
+  // First effect: fetch initial data and get session ID
   useEffect(() => {
     if (!sessionKey) {
       navigate('/');
       return;
     }
 
-    // Get data through backend API
     const fetchData = async () => {
       try {
         const response = await fetch(`${API_URL}/data/${sessionKey}`);
@@ -184,26 +185,49 @@ function DataPage() {
         const json = await response.json();
         setData(formatBuffer(json));
         setError(false);
+        
+        // Get session ID from the first data point if available
+        if (json.length > 0 && json[0].session_id) {
+          setSessionId(json[0].session_id);
+        } else {
+          // If no data yet, fetch session ID from sessions table
+          const sessionResponse = await supabase
+            .from('sessions')
+            .select('id')
+            .eq('session_key', sessionKey)
+            .single();
+          
+          if (sessionResponse.data) {
+            setSessionId(sessionResponse.data.id);
+          }
+        }
       } catch (err) {
+        console.error('Error fetching data:', err);
         setError(true);
       }
     };
 
-    // Initial fetch
     fetchData();
+  }, [sessionKey, navigate]);
 
-    // Subscribe to real-time updates via Supabase real-time
+  // Second effect: set up real-time subscription once we have session ID
+  useEffect(() => {
+    if (!sessionId) return;
+
+    console.log('Setting up real-time subscription for session ID:', sessionId);
+
     const subscription = supabase
-      .channel('health_data_changes')
+      .channel(`health_data_${sessionId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'health_data',
+          filter: `session_id=eq.${sessionId}`,
         },
-        // Only fetch new data
         (payload) => {
+          console.log('Received real-time update:', payload);
           setData((prev) => {
             const newRow = payload.new;
             return [
@@ -217,12 +241,15 @@ function DataPage() {
           });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
 
     return () => {
+      console.log('Unsubscribing from real-time updates');
       subscription.unsubscribe();
     };
-  }, [sessionKey, navigate]);
+  }, [sessionId]);
 
   // Sort once: oldest → newest
   const ascending = [...data].sort((a, b) => a.timestamp - b.timestamp);
@@ -232,7 +259,6 @@ function DataPage() {
 
   // Table wants newest → oldest (but only last 20)
   const tableData = ascending.slice(-20).reverse();
-
 
   return (
     <div>
@@ -246,7 +272,7 @@ function DataPage() {
       ) : (
         <>
           {/* Table - uses sortedData (newest first) */}
-          <table class="vitals-table" style={{ margin: '0 auto' }}>
+          <table className="vitals-table" style={{ margin: '0 auto' }}>
             <thead>
               <tr>
                 <th>Timestamp</th>
