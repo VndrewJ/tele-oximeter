@@ -11,7 +11,7 @@ load_dotenv(env_path)
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY')
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Initialize Supabase client
 supabase = create_client(
@@ -41,6 +41,8 @@ def create_session():
 
 @app.route("/data/<session_key>")
 def get_data(session_key):
+
+    print(f"Looking for session_key: '{session_key}'")
     try:
         # Get session id
         session = supabase.table('sessions')\
@@ -48,9 +50,11 @@ def get_data(session_key):
             .eq('session_key', session_key)\
             .execute()\
             .data
+        
+        print(f"Found sessions: {session}")
 
         if not session:
-            abort(404)
+            return jsonify({'error': 'Session not found'}), 404
 
         # Get health data
         result = supabase.table('health_data')\
